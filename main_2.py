@@ -13,6 +13,10 @@ class Simulation:
         self.arrivalStack = []
         self.itemArrivalTime = []
         self.itemServiceTime = []
+        self.itemDelayTimeSumForFirstStream = 0
+        self.itemDelayTimeSumForSecondStream = 0
+        self.totalAmountOfFirstStreamItems = 0
+        self.totalAmountOfSecondStreamItems = 0
         self.serviceTime = None
         self.events = {"firstStream": self.currentTime + self.generateFirstStreamInterarrivalTime(),
                        "secondStream": self.currentTime + self.generateSecondStreamInterarrivalTime(),
@@ -50,15 +54,32 @@ class Simulation:
                     self.events[minTimeEventKey] = float('inf')
                 else:
                     self.departureEvent(self.events[minTimeEventKey])
+                self.updateStatistics(minTimeEventKey)
 
-            self.updateStatistics(minTimeEventKey)
+
 
         pprint(self.serverUtilizationCoef())
         pprint(self.maxl1AmountInQueue)
 
-        with open('statistics.csv', 'w') as csvfile:
+        firstStreamItemsAverageDelay = self.itemDelayTimeSumForFirstStream / self.totalAmountOfFirstStreamItems
+        secondStreamItemsAverageDelay = self.itemDelayTimeSumForSecondStream / self.totalAmountOfSecondStreamItems
+
+        pprint(firstStreamItemsAverageDelay)
+        pprint(secondStreamItemsAverageDelay)
+
+
+        totalAmountOfItems = self.totalAmountOfFirstStreamItems + self.totalAmountOfSecondStreamItems
+        averageDelay = (self.itemDelayTimeSumForFirstStream + self.itemDelayTimeSumForSecondStream) / totalAmountOfItems
+        pprint(averageDelay)
+
+        pprint((self.totalAmountOfFirstStreamItems/500) * firstStreamItemsAverageDelay)
+        pprint((self.totalAmountOfSecondStreamItems / 500) * secondStreamItemsAverageDelay)
+        pprint((totalAmountOfItems/500)*averageDelay)
+
+
+        with open('statistics.csv' , 'w') as csvfile:
             fieldnames = ['type', 'eventTime', 'L1', 'L2', 'departureTime', 'serverBusy', 'queueLength', 'queueContent']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames,dialect='excel')
 
             writer.writeheader()
             writer.writerows(self.statistics)
@@ -67,7 +88,11 @@ class Simulation:
         self.itemServiceTime.append(self.serviceTime)
         if self.arrivalStack:
             arrivalType = self.arrivalStack.pop()
-            if arrivalType == "firstStream": self.l1AmountInQueue -= 1
+            if arrivalType == "firstStream":
+                self.itemDelayTimeSumForFirstStream = self.itemDelayTimeSumForFirstStream + self.currentTime - self.itemArrivalTime[-1]
+                self.l1AmountInQueue -= 1
+            else:
+                self.itemDelayTimeSumForSecondStream = self.itemDelayTimeSumForSecondStream + self.currentTime - self.itemArrivalTime[-1]
             self.serviceTime = self.generateServiceTime(arrivalType)
             self.events["departure"] = self.currentTime + self.serviceTime
         else:
@@ -75,6 +100,11 @@ class Simulation:
 
     def arrivalEvent(self, typeOfStream, time):
         self.itemArrivalTime.append(time)
+        if typeOfStream == "firstStream":
+            self.totalAmountOfFirstStreamItems = self.totalAmountOfFirstStreamItems + 1
+        else:
+            self.totalAmountOfSecondStreamItems = self.totalAmountOfSecondStreamItems + 1
+
         if not self.arrivalStack and self.events["departure"] == float('inf'):
             self.serviceTime = self.generateServiceTime(typeOfStream)
             self.events["departure"] = self.currentTime + self.serviceTime
@@ -106,11 +136,11 @@ class Simulation:
     def serviceTimeFirstStream(self):
         return normal(20, 3)
 
-    def serviceTimeSecondtStream(self):
+    def serviceTimeSecondStream(self):
         return exponential(0.2)
 
     def generateServiceTime(self, arrivalType):
-         return self.serviceTimeFirstStream() if (arrivalType == "firstStream") else self.serviceTimeSecondtStream()
+         return self.serviceTimeFirstStream() if (arrivalType == "firstStream") else self.serviceTimeSecondStream()
 
     def serverUtilizationCoef(self):
         serviceTimeSum = 0
@@ -119,5 +149,5 @@ class Simulation:
         return serviceTimeSum / self.modelingTime
 
 
-simulation = Simulation(1000)
+simulation = Simulation(500)
 simulation.modeling()

@@ -9,8 +9,8 @@ def exponential(lam):
 
 def erlang(k, lam):
     number = 1.0
-    for x in range(1, k):
-        number = (1.0 - uniform(0, 1.0))
+    for x in range(1, k + 1):
+        number = number * (1.0 - uniform(0, 1.0))
     return -lam * np.log(number)
 
 
