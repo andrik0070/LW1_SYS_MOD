@@ -95,7 +95,7 @@ class Simulation:
         averageDelay = (self.itemDelayTimeSumForFirstStream + self.itemDelayTimeSumForSecondStream) / totalAmountOfItems
         pprint(averageDelay)
 
-        pprint((self.totalAmountOfFirstStreamItems/500) * firstStreamItemsAverageDelay)
+        pprint((self.totalAmountOfFirstStreamItems / 500) * firstStreamItemsAverageDelay)
         pprint((self.totalAmountOfSecondStreamItems / 500) * secondStreamItemsAverageDelay)
         pprint((totalAmountOfItems/500)*averageDelay)
 
@@ -129,10 +129,10 @@ class Simulation:
             arrival.serviceStartTime = self.currentTime
             self.currentlyServicedArrival = arrival
             if arrival.typeOfStream == "firstStream":
-                self.itemDelayTimeSumForFirstStream = self.itemDelayTimeSumForFirstStream + self.currentTime - arrival.time
+                self.itemDelayTimeSumForFirstStream += self.currentTime - arrival.time
                 self.l1AmountInQueue -= 1
             else:
-                self.itemDelayTimeSumForSecondStream = self.itemDelayTimeSumForSecondStream + self.currentTime - arrival.time
+                self.itemDelayTimeSumForSecondStream += self.currentTime - arrival.time
             self.serviceTime = self.generateServiceTime(arrival.typeOfStream)
             self.events["departure"] = self.currentTime + self.serviceTime
         else:
