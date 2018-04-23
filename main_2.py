@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import queue
+from arrival import Arrival
 from pprint import pprint
 from distributions import *
 import csv
@@ -15,6 +16,8 @@ class Simulation:
         self.itemServiceTime = []
         self.itemDelayTimeSumForFirstStream = 0
         self.itemDelayTimeSumForSecondStream = 0
+        self.serviceTimeSumFirstStream = 0
+        self.serviceTimeSumSecondStream = 0
         self.totalAmountOfFirstStreamItems = 0
         self.totalAmountOfSecondStreamItems = 0
         self.serviceTime = None
@@ -24,6 +27,7 @@ class Simulation:
         self.statistics = []
         self.l1AmountInQueue = 0
         self.maxl1AmountInQueue = 0
+        self.currentlyServicedArrival = None
         self.updateStatistics("start")
 
     def modeling(self):
@@ -50,11 +54,30 @@ class Simulation:
 
             if shouldRepeat:
                 if minTimeEventKey == "firstStream" or minTimeEventKey == "secondStream":
-                    self.arrivalEvent(minTimeEventKey, self.events[minTimeEventKey])
+                    arrival = Arrival(minTimeEventKey, self.events[minTimeEventKey])
+                    self.arrivalEvent(arrival)
                     self.events[minTimeEventKey] = float('inf')
                 else:
-                    self.departureEvent(self.events[minTimeEventKey])
+                    self.departureEvent()
                 self.updateStatistics(minTimeEventKey)
+
+
+        if self.serviceTime != float('inf'):
+            if self.currentlyServicedArrival.typeOfStream == 'firstStream':
+               self.serviceTimeSumFirstStream += self.modelingTime - self.currentlyServicedArrival.serviceStartTime
+            else:
+               self.serviceTimeSumSecondStream += self.modelingTime - self.currentlyServicedArrival.serviceStartTime
+
+
+        while self.arrivalStack:
+            arrival = self.arrivalStack.pop()
+            if arrival.typeOfStream == 'firstStream':
+                self.itemDelayTimeSumForFirstStream += self.modelingTime - arrival.time
+            else:
+                self.itemDelayTimeSumForSecondStream += self.modelingTime - arrival.time
+
+
+
 
 
 
@@ -76,6 +99,14 @@ class Simulation:
         pprint((self.totalAmountOfSecondStreamItems / 500) * secondStreamItemsAverageDelay)
         pprint((totalAmountOfItems/500)*averageDelay)
 
+        averageServiceTimeFirstStream = (self.serviceTimeSumFirstStream + self.itemDelayTimeSumForFirstStream ) / self.totalAmountOfFirstStreamItems
+        averageServiceTimeSecondStream = (self.serviceTimeSumSecondStream + self.itemDelayTimeSumForSecondStream ) / self.totalAmountOfSecondStreamItems
+
+        pprint(averageServiceTimeFirstStream)
+        pprint(averageServiceTimeSecondStream)
+
+        pprint((self.serviceTimeSumFirstStream + self.serviceTimeSumSecondStream + self.itemDelayTimeSumForFirstStream + self.itemDelayTimeSumForSecondStream ) / (self.totalAmountOfFirstStreamItems + self.totalAmountOfSecondStreamItems))
+
 
         with open('statistics.csv' , 'w') as csvfile:
             fieldnames = ['type', 'eventTime', 'L1', 'L2', 'departureTime', 'serverBusy', 'queueLength', 'queueContent']
@@ -84,35 +115,46 @@ class Simulation:
             writer.writeheader()
             writer.writerows(self.statistics)
 
-    def departureEvent(self, time):
+    def departureEvent(self):
         self.itemServiceTime.append(self.serviceTime)
+
+        if self.currentlyServicedArrival:
+          if  self.currentlyServicedArrival.typeOfStream == 'firstStream':
+              self.serviceTimeSumFirstStream += self.serviceTime
+          else:
+              self.serviceTimeSumSecondStream += self.serviceTime
+
         if self.arrivalStack:
-            arrivalType = self.arrivalStack.pop()
-            if arrivalType == "firstStream":
-                self.itemDelayTimeSumForFirstStream = self.itemDelayTimeSumForFirstStream + self.currentTime - self.itemArrivalTime[-1]
+            arrival = self.arrivalStack.pop()
+            arrival.serviceStartTime = self.currentTime
+            self.currentlyServicedArrival = arrival
+            if arrival.typeOfStream == "firstStream":
+                self.itemDelayTimeSumForFirstStream = self.itemDelayTimeSumForFirstStream + self.currentTime - arrival.time
                 self.l1AmountInQueue -= 1
             else:
-                self.itemDelayTimeSumForSecondStream = self.itemDelayTimeSumForSecondStream + self.currentTime - self.itemArrivalTime[-1]
-            self.serviceTime = self.generateServiceTime(arrivalType)
+                self.itemDelayTimeSumForSecondStream = self.itemDelayTimeSumForSecondStream + self.currentTime - arrival.time
+            self.serviceTime = self.generateServiceTime(arrival.typeOfStream)
             self.events["departure"] = self.currentTime + self.serviceTime
         else:
             self.events["departure"] = float('inf')
 
-    def arrivalEvent(self, typeOfStream, time):
-        self.itemArrivalTime.append(time)
-        if typeOfStream == "firstStream":
+    def arrivalEvent(self, arrival):
+        self.itemArrivalTime.append(arrival.time)
+        if arrival.typeOfStream == "firstStream":
             self.totalAmountOfFirstStreamItems = self.totalAmountOfFirstStreamItems + 1
         else:
             self.totalAmountOfSecondStreamItems = self.totalAmountOfSecondStreamItems + 1
 
         if not self.arrivalStack and self.events["departure"] == float('inf'):
-            self.serviceTime = self.generateServiceTime(typeOfStream)
+            self.serviceTime = self.generateServiceTime(arrival.typeOfStream)
+            self.currentlyServicedArrival = arrival
+            self.currentlyServicedArrival.serviceStartTime = arrival.time
             self.events["departure"] = self.currentTime + self.serviceTime
         else:
-            if typeOfStream == "firstStream":
+            if arrival.typeOfStream == "firstStream":
                 self.l1AmountInQueue += 1
                 if self.l1AmountInQueue > self.maxl1AmountInQueue: self.maxl1AmountInQueue = self.l1AmountInQueue
-            self.arrivalStack.append(typeOfStream)
+            self.arrivalStack.append(arrival)
 
     def updateStatistics(self, typeOfEvent):
         event = {}
