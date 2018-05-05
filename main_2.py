@@ -70,14 +70,14 @@ class Simulation:
                 self.collect_statistics(closest_event_name)
 
         if self.current_service_time != float('inf'):
-            if self.currently_serviced_arrival.typeOfStream == 'first':
-                self.service_time_sum_first += self.simulation_time - self.currently_serviced_arrival.serviceStartTime
+            if self.currently_serviced_arrival.type == 'first':
+                self.service_time_sum_first += self.simulation_time - self.currently_serviced_arrival.service_start_time
             else:
-                self.service_time_sum_second += self.simulation_time - self.currently_serviced_arrival.serviceStartTime
+                self.service_time_sum_second += self.simulation_time - self.currently_serviced_arrival.service_start_time
 
         while self.arrival_queue.qsize():
             arrival = self.arrival_queue.get()
-            if arrival.typeOfStream == 'first':
+            if arrival.type == 'first':
                 self.delay_time_sum_first += self.simulation_time - arrival.time
             else:
                 self.delay_time_sum_second += self.simulation_time - arrival.time
@@ -128,7 +128,7 @@ class Simulation:
         self.service_time.append(self.current_service_time)
 
         if self.currently_serviced_arrival:
-            if self.currently_serviced_arrival.typeOfStream == 'first':
+            if self.currently_serviced_arrival.type == 'first':
                 self.service_time_sum_first += self.current_service_time
                 self.total_amount_of_first_stream_serviced_arrivals += 1
             else:
@@ -137,35 +137,35 @@ class Simulation:
 
         if self.arrival_queue.qsize():
             arrival = self.arrival_queue.get()
-            arrival.serviceStartTime = self.current_time
+            arrival.service_start_time = self.current_time
             self.currently_serviced_arrival = arrival
-            if arrival.typeOfStream == "first":
+            if arrival.type == "first":
                 self.delay_time_sum_first += self.current_time - arrival.time
                 self.first_stream_arrivals_amount_in_queue -= 1
             else:
                 self.delay_time_sum_second += self.current_time - arrival.time
-            self.current_service_time = self.generate_service_time(arrival.typeOfStream)
+            self.current_service_time = self.generate_service_time(arrival.type)
             self.events["departure"] = self.current_time + self.current_service_time
         else:
             self.events["departure"] = float('inf')
 
     def arrival(self, arrival):
         self.arrival_time.append(arrival.time)
-        if arrival.typeOfStream == "first":
+        if arrival.type == "first":
             self.total_amount_of_first_stream_arrivals = self.total_amount_of_first_stream_arrivals + 1
         else:
             self.total_amount_of_second_stream_arrivals = self.total_amount_of_second_stream_arrivals + 1
 
         if not self.arrival_queue.qsize() and self.events["departure"] == float('inf'):
-            self.current_service_time = self.generate_service_time(arrival.typeOfStream)
+            self.current_service_time = self.generate_service_time(arrival.type)
             self.currently_serviced_arrival = arrival
-            self.currently_serviced_arrival.serviceStartTime = arrival.time
+            self.currently_serviced_arrival.service_start_time = arrival.time
             self.events["departure"] = self.current_time + self.current_service_time
         else:
             if self.max_arrivals_amount_in_queue < self.arrival_queue.qsize():
                 self.max_arrivals_amount_in_queue += 1
 
-            if arrival.typeOfStream == "first":
+            if arrival.type == "first":
                 self.first_stream_arrivals_amount_in_queue += 1
                 if self.first_stream_arrivals_amount_in_queue > self.max_first_stream_arrivals_amount_in_queue: self.max_first_stream_arrivals_amount_in_queue = self.first_stream_arrivals_amount_in_queue
             self.arrival_queue.put(arrival)
