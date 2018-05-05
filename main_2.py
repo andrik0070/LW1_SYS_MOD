@@ -1,194 +1,228 @@
-import sys
 import numpy as np
+from random import uniform
+from math import sqrt, log, pow
 import queue
 from arrival import Arrival
 from pprint import pprint
-from distributions import *
 import csv
 
 
 class Simulation:
-    def __init__(self, modelingTime):
-        self.currentTime = 0.0
-        self.modelingTime = modelingTime
-        self.arrivalStack = []
-        self.itemArrivalTime = []
-        self.itemServiceTime = []
-        self.itemDelayTimeSumForFirstStream = 0
-        self.itemDelayTimeSumForSecondStream = 0
-        self.serviceTimeSumFirstStream = 0
-        self.serviceTimeSumSecondStream = 0
-        self.totalAmountOfFirstStreamItems = 0
-        self.totalAmountOfSecondStreamItems = 0
-        self.serviceTime = None
-        self.events = {"firstStream": self.currentTime + self.generateFirstStreamInterarrivalTime(),
-                       "secondStream": self.currentTime + self.generateSecondStreamInterarrivalTime(),
-                       "departure": float('inf')}
+    def __init__(self, simulation_time):
+
+        self.current_time = 0.0
+        self.simulation_time = simulation_time
+
+        self.arrival_queue = queue.Queue()
+        self.arrival_time = []
+
+        self.total_amount_of_first_stream_arrivals = 0
+        self.total_amount_of_second_stream_arrivals = 0
+
+        self.total_amount_of_first_stream_serviced_arrivals = 0
+        self.total_amount_of_second_stream_serviced_arrivals = 0
+
+        self.service_time = []
+
+        self.service_time_sum_first = 0
+        self.service_time_sum_second = 0
+
+        self.current_service_time = None
+        self.currently_serviced_arrival = None
+
         self.statistics = []
-        self.l1AmountInQueue = 0
-        self.maxl1AmountInQueue = 0
-        self.currentlyServicedArrival = None
-        self.updateStatistics("start")
+
+        self.delay_time_sum_first = 0
+        self.delay_time_sum_second = 0
+
+        self.events = {"first": self.current_time + self.interarrival_time_first_stream(),
+                       "second": self.current_time + self.interarrival_time_second_stream(),
+                       "departure": float('inf')}
+
+        self.first_stream_arrivals_amount_in_queue = 0
+        self.max_first_stream_arrivals_amount_in_queue = 0
+        self.max_arrivals_amount_in_queue = 0
+
+        self.collect_statistics("start")
 
     def modeling(self):
-        shouldRepeat = True
-        while (shouldRepeat):
+        keep = True
+        while keep:
 
-            # firstStreamItem = np.random.exponential(scale=5)
-            # secondStreamItem =  np.random.gamma(shape=2, scale=0.1)
+            if self.events["first"] == float('inf'):
+                self.events["first"] = self.current_time + self.interarrival_time_first_stream()
 
-            # self.firstStreamQueue.appendleft(self.currentTime + firstStreamItem)
-            # self.secondStreamQueue.appendleft(self.currentTime + secondStreamItem)
+            if self.events["second"] == float('inf'):
+                self.events["second"] = self.current_time + self.interarrival_time_second_stream()
 
-            if self.events["firstStream"] == float('inf'):
-                self.events["firstStream"] = self.currentTime + self.generateFirstStreamInterarrivalTime()
+            closest_event_name = min(self.events, key=self.events.get)
 
-            if self.events["secondStream"] == float('inf'):
-                self.events["secondStream"] = self.currentTime + self.generateSecondStreamInterarrivalTime()
+            self.current_time = self.events[closest_event_name]
+            keep = self.current_time <= self.simulation_time
 
-            # {"firstStream" : self.firstStreamQueue.pop() , "secondStream" : self.secondStreamQueue.pop() , "departure": self.currentTime + self.nextDepartureTime }
-            minTimeEventKey = min(self.events, key=self.events.get)
-
-            self.currentTime = self.events[minTimeEventKey]
-            shouldRepeat = self.currentTime <= self.modelingTime
-
-            if shouldRepeat:
-                if minTimeEventKey == "firstStream" or minTimeEventKey == "secondStream":
-                    arrival = Arrival(minTimeEventKey, self.events[minTimeEventKey])
-                    self.arrivalEvent(arrival)
-                    self.events[minTimeEventKey] = float('inf')
+            if keep:
+                if closest_event_name == "first" or closest_event_name == "second":
+                    arrival = Arrival(closest_event_name, self.events[closest_event_name])
+                    self.arrival(arrival)
+                    self.events[closest_event_name] = float('inf')
                 else:
-                    self.departureEvent()
-                self.updateStatistics(minTimeEventKey)
+                    self.departure()
+                self.collect_statistics(closest_event_name)
 
-
-        if self.serviceTime != float('inf'):
-            if self.currentlyServicedArrival.typeOfStream == 'firstStream':
-               self.serviceTimeSumFirstStream += self.modelingTime - self.currentlyServicedArrival.serviceStartTime
+        if self.current_service_time != float('inf'):
+            if self.currently_serviced_arrival.typeOfStream == 'first':
+                self.service_time_sum_first += self.simulation_time - self.currently_serviced_arrival.serviceStartTime
             else:
-               self.serviceTimeSumSecondStream += self.modelingTime - self.currentlyServicedArrival.serviceStartTime
+                self.service_time_sum_second += self.simulation_time - self.currently_serviced_arrival.serviceStartTime
 
-
-        while self.arrivalStack:
-            arrival = self.arrivalStack.pop()
-            if arrival.typeOfStream == 'firstStream':
-                self.itemDelayTimeSumForFirstStream += self.modelingTime - arrival.time
+        while self.arrival_queue.qsize():
+            arrival = self.arrival_queue.get()
+            if arrival.typeOfStream == 'first':
+                self.delay_time_sum_first += self.simulation_time - arrival.time
             else:
-                self.itemDelayTimeSumForSecondStream += self.modelingTime - arrival.time
+                self.delay_time_sum_second += self.simulation_time - arrival.time
 
+        pprint(self.server_util_coef())
+        pprint(self.max_first_stream_arrivals_amount_in_queue)
 
-
-
-
-
-        pprint(self.serverUtilizationCoef())
-        pprint(self.maxl1AmountInQueue)
-
-        firstStreamItemsAverageDelay = self.itemDelayTimeSumForFirstStream / self.totalAmountOfFirstStreamItems
-        secondStreamItemsAverageDelay = self.itemDelayTimeSumForSecondStream / self.totalAmountOfSecondStreamItems
+        firstStreamItemsAverageDelay = self.delay_time_sum_first / self.total_amount_of_first_stream_arrivals
+        secondStreamItemsAverageDelay = self.delay_time_sum_second / self.total_amount_of_second_stream_arrivals
 
         pprint(firstStreamItemsAverageDelay)
         pprint(secondStreamItemsAverageDelay)
 
-
-        totalAmountOfItems = self.totalAmountOfFirstStreamItems + self.totalAmountOfSecondStreamItems
-        averageDelay = (self.itemDelayTimeSumForFirstStream + self.itemDelayTimeSumForSecondStream) / totalAmountOfItems
+        totalAmountOfItems = self.total_amount_of_first_stream_arrivals + self.total_amount_of_second_stream_arrivals
+        averageDelay = (self.delay_time_sum_first + self.delay_time_sum_second) / totalAmountOfItems
         pprint(averageDelay)
 
-        pprint((self.totalAmountOfFirstStreamItems / 500) * firstStreamItemsAverageDelay)
-        pprint((self.totalAmountOfSecondStreamItems / 500) * secondStreamItemsAverageDelay)
-        pprint((totalAmountOfItems/500)*averageDelay)
+        pprint((self.total_amount_of_first_stream_arrivals / 500) * firstStreamItemsAverageDelay)
+        pprint((self.total_amount_of_second_stream_arrivals / 500) * secondStreamItemsAverageDelay)
+        pprint((totalAmountOfItems / 500) * averageDelay)
 
-        averageServiceTimeFirstStream = (self.serviceTimeSumFirstStream + self.itemDelayTimeSumForFirstStream ) / self.totalAmountOfFirstStreamItems
-        averageServiceTimeSecondStream = (self.serviceTimeSumSecondStream + self.itemDelayTimeSumForSecondStream ) / self.totalAmountOfSecondStreamItems
+        averageServiceTimeFirstStream = (
+                                                self.service_time_sum_first + self.delay_time_sum_first) / self.total_amount_of_first_stream_arrivals
+        averageServiceTimeSecondStream = (
+                                                 self.service_time_sum_second + self.delay_time_sum_second) / self.total_amount_of_second_stream_arrivals
 
         pprint(averageServiceTimeFirstStream)
         pprint(averageServiceTimeSecondStream)
 
-        pprint((self.serviceTimeSumFirstStream + self.serviceTimeSumSecondStream + self.itemDelayTimeSumForFirstStream + self.itemDelayTimeSumForSecondStream ) / (self.totalAmountOfFirstStreamItems + self.totalAmountOfSecondStreamItems))
+        pprint((
+                       self.service_time_sum_first + self.service_time_sum_second + self.delay_time_sum_first + self.delay_time_sum_second) / (
+                       self.total_amount_of_first_stream_arrivals + self.total_amount_of_second_stream_arrivals))
 
+        pprint(self.total_amount_of_first_stream_arrivals)
+        pprint(self.total_amount_of_second_stream_arrivals)
+        pprint(self.total_amount_of_first_stream_serviced_arrivals)
+        pprint(self.total_amount_of_second_stream_serviced_arrivals)
+        pprint(self.max_arrivals_amount_in_queue)
 
-        with open('statistics.csv' , 'w') as csvfile:
+        with open('statistics.csv', 'w') as csvfile:
             fieldnames = ['type', 'eventTime', 'L1', 'L2', 'departureTime', 'serverBusy', 'queueLength', 'queueContent']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames,dialect='excel')
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, dialect='excel')
 
             writer.writeheader()
             writer.writerows(self.statistics)
 
-    def departureEvent(self):
-        self.itemServiceTime.append(self.serviceTime)
+    def departure(self):
+        self.service_time.append(self.current_service_time)
 
-        if self.currentlyServicedArrival:
-          if  self.currentlyServicedArrival.typeOfStream == 'firstStream':
-              self.serviceTimeSumFirstStream += self.serviceTime
-          else:
-              self.serviceTimeSumSecondStream += self.serviceTime
-
-        if self.arrivalStack:
-            arrival = self.arrivalStack.pop()
-            arrival.serviceStartTime = self.currentTime
-            self.currentlyServicedArrival = arrival
-            if arrival.typeOfStream == "firstStream":
-                self.itemDelayTimeSumForFirstStream += self.currentTime - arrival.time
-                self.l1AmountInQueue -= 1
+        if self.currently_serviced_arrival:
+            if self.currently_serviced_arrival.typeOfStream == 'first':
+                self.service_time_sum_first += self.current_service_time
+                self.total_amount_of_first_stream_serviced_arrivals += 1
             else:
-                self.itemDelayTimeSumForSecondStream += self.currentTime - arrival.time
-            self.serviceTime = self.generateServiceTime(arrival.typeOfStream)
-            self.events["departure"] = self.currentTime + self.serviceTime
+                self.service_time_sum_second += self.current_service_time
+                self.total_amount_of_second_stream_serviced_arrivals += 1
+
+        if self.arrival_queue.qsize():
+            arrival = self.arrival_queue.get()
+            arrival.serviceStartTime = self.current_time
+            self.currently_serviced_arrival = arrival
+            if arrival.typeOfStream == "first":
+                self.delay_time_sum_first += self.current_time - arrival.time
+                self.first_stream_arrivals_amount_in_queue -= 1
+            else:
+                self.delay_time_sum_second += self.current_time - arrival.time
+            self.current_service_time = self.generate_service_time(arrival.typeOfStream)
+            self.events["departure"] = self.current_time + self.current_service_time
         else:
             self.events["departure"] = float('inf')
 
-    def arrivalEvent(self, arrival):
-        self.itemArrivalTime.append(arrival.time)
-        if arrival.typeOfStream == "firstStream":
-            self.totalAmountOfFirstStreamItems = self.totalAmountOfFirstStreamItems + 1
+    def arrival(self, arrival):
+        self.arrival_time.append(arrival.time)
+        if arrival.typeOfStream == "first":
+            self.total_amount_of_first_stream_arrivals = self.total_amount_of_first_stream_arrivals + 1
         else:
-            self.totalAmountOfSecondStreamItems = self.totalAmountOfSecondStreamItems + 1
+            self.total_amount_of_second_stream_arrivals = self.total_amount_of_second_stream_arrivals + 1
 
-        if not self.arrivalStack and self.events["departure"] == float('inf'):
-            self.serviceTime = self.generateServiceTime(arrival.typeOfStream)
-            self.currentlyServicedArrival = arrival
-            self.currentlyServicedArrival.serviceStartTime = arrival.time
-            self.events["departure"] = self.currentTime + self.serviceTime
+        if not self.arrival_queue.qsize() and self.events["departure"] == float('inf'):
+            self.current_service_time = self.generate_service_time(arrival.typeOfStream)
+            self.currently_serviced_arrival = arrival
+            self.currently_serviced_arrival.serviceStartTime = arrival.time
+            self.events["departure"] = self.current_time + self.current_service_time
         else:
-            if arrival.typeOfStream == "firstStream":
-                self.l1AmountInQueue += 1
-                if self.l1AmountInQueue > self.maxl1AmountInQueue: self.maxl1AmountInQueue = self.l1AmountInQueue
-            self.arrivalStack.append(arrival)
+            if self.max_arrivals_amount_in_queue < self.arrival_queue.qsize():
+                self.max_arrivals_amount_in_queue += 1
 
-    def updateStatistics(self, typeOfEvent):
+            if arrival.typeOfStream == "first":
+                self.first_stream_arrivals_amount_in_queue += 1
+                if self.first_stream_arrivals_amount_in_queue > self.max_first_stream_arrivals_amount_in_queue: self.max_first_stream_arrivals_amount_in_queue = self.first_stream_arrivals_amount_in_queue
+            self.arrival_queue.put(arrival)
+
+    def collect_statistics(self, typeOfEvent):
         event = {}
         event["type"] = typeOfEvent
-        event["eventTime"] = self.currentTime
-        event["L1"] = self.events["firstStream"]
-        event["L2"] = self.events["secondStream"]
+        event["eventTime"] = self.current_time
+        event["L1"] = self.events["first"]
+        event["L2"] = self.events["second"]
         event["departureTime"] = self.events["departure"]
         event["serverBusy"] = 0 if self.events["departure"] == float('inf') else 1
-        event["queueLength"] = len(self.arrivalStack)
+        event["queueLength"] = self.arrival_queue.qsize()
         event["queueContent"] = ' '.join(list(
-            map(lambda arrivalType: "L1" if ("firstStream" == arrivalType) else "L2", self.arrivalStack)))
+            map(lambda arrivalType: "L1" if ("first" == arrivalType) else "L2", list(self.arrival_queue.queue))))
         self.statistics.append(event)
 
-    def generateFirstStreamInterarrivalTime(self):
-        return exponential(0.2)
+    def interarrival_time_first_stream(self):
+        return self.erlang(3, 4)
 
-    def generateSecondStreamInterarrivalTime(self):
-        return erlang(2, 10)
+    def interarrival_time_second_stream(self):
+        return self.exponential(0.5)
 
-    def serviceTimeFirstStream(self):
-        return normal(20, 3)
+    def service_time_second_stream(self):
+        return self.normal(12, 2)
 
-    def serviceTimeSecondStream(self):
-        return exponential(0.2)
+    def service_time_first_stream(self):
+        return self.exponential(2)
 
-    def generateServiceTime(self, arrivalType):
-         return self.serviceTimeFirstStream() if (arrivalType == "firstStream") else self.serviceTimeSecondStream()
+    def generate_service_time(self, arrivalType):
+        return self.service_time_second_stream() if (arrivalType == "first") else self.service_time_first_stream()
 
-    def serverUtilizationCoef(self):
+    def server_util_coef(self):
         serviceTimeSum = 0
-        for time in self.itemServiceTime:
+        for time in self.service_time:
             serviceTimeSum += time
-        return serviceTimeSum / self.modelingTime
+        return serviceTimeSum / self.simulation_time
+
+    def exponential(self, lam):
+        return (-1 / lam) * np.log(uniform(0, 1.0))
+
+    def erlang(self, k, lam):
+        number = 1.0
+        for x in range(1, k + 1):
+            number = number * (1.0 - uniform(0, 1.0))
+        return -lam * np.log(number)
+
+    def normal(self, mean, std):
+        x = uniform(-1, 1)
+        y = uniform(-1, 1)
+        s = pow(x, 2) + pow(y, 2)
+        while s > 1 or s == 0:
+            x = uniform(-1, 1)
+            y = uniform(-1, 1)
+            s = (pow(x, 2)) + (pow(y, 2))
+        z = x * sqrt((-2 * log(s)) / s)
+        return mean + std * z
 
 
 simulation = Simulation(500)

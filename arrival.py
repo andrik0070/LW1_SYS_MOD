@@ -5,3 +5,4 @@ class Arrival:
       self.typeOfStream = typeOfStream
       self.time = time
       self.serviceStartTime = None
+      self.serviceTime = None
